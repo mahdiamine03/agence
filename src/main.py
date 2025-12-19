@@ -1,8 +1,13 @@
 import customtkinter as ctk
 from tkinter import messagebox, StringVar
+import tkinter.ttk as ttk
 from src.database import DatabaseManager
 from src.auth import AuthManager
+from src.pdf_generator import PDFGenerator
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 import sys
+import os
 
 # Configure appearance
 ctk.set_appearance_mode("Dark")
@@ -11,8 +16,8 @@ ctk.set_default_color_theme("blue")
 class TravelApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Agence de Voyage Management System")
-        self.geometry("1100x700")
+        self.title("Agence de Voyage Management System Pro")
+        self.geometry("1280x800")
 
         # Initialize Managers
         self.db = DatabaseManager()
@@ -57,20 +62,24 @@ class LoginFrame(ctk.CTkFrame):
         super().__init__(parent)
         self.controller = controller
 
-        self.frame = ctk.CTkFrame(self, width=350, height=400, corner_radius=15)
+        self.frame = ctk.CTkFrame(self, width=400, height=500, corner_radius=15)
         self.frame.place(relx=0.5, rely=0.5, anchor="center")
 
         self.label = ctk.CTkLabel(self.frame, text="Agency Login", font=("Roboto Medium", 24))
-        self.label.pack(pady=30)
+        self.label.pack(pady=(40, 20))
 
-        self.username_entry = ctk.CTkEntry(self.frame, placeholder_text="Username", width=250)
+        self.username_entry = ctk.CTkEntry(self.frame, placeholder_text="Username", width=280, height=40)
         self.username_entry.pack(pady=10)
 
-        self.password_entry = ctk.CTkEntry(self.frame, placeholder_text="Password", show="*", width=250)
+        self.password_entry = ctk.CTkEntry(self.frame, placeholder_text="Password", show="*", width=280, height=40)
         self.password_entry.pack(pady=10)
+        self.password_entry.bind("<Return>", lambda event: self.login_event())
 
-        self.login_button = ctk.CTkButton(self.frame, text="Login", width=250, command=self.login_event)
-        self.login_button.pack(pady=20)
+        self.login_button = ctk.CTkButton(self.frame, text="Login", width=280, height=40, command=self.login_event)
+        self.login_button.pack(pady=30)
+
+        self.status_label = ctk.CTkLabel(self.frame, text="", font=("Roboto", 12))
+        self.status_label.pack(pady=5)
 
     def login_event(self):
         username = self.username_entry.get()
@@ -78,9 +87,12 @@ class LoginFrame(ctk.CTkFrame):
 
         user = self.controller.auth.login(username, password)
         if user:
+            self.controller.db.update_last_login(username)
+            self.status_label.configure(text="Connection Successful", text_color="green")
             self.controller.current_user = user
-            self.controller.show_dashboard()
+            self.after(500, self.controller.show_dashboard)
         else:
+            self.status_label.configure(text="Invalid Credentials", text_color="red")
             messagebox.showerror("Login Failed", "Invalid username or password")
 
 
@@ -90,31 +102,23 @@ class MainLayout(ctk.CTkFrame):
         self.controller = controller
 
         # Sidebar
-        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
+        self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0)
         self.sidebar.pack(side="left", fill="y")
 
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="Travel Agency", font=("Roboto Medium", 20))
-        self.logo_label.pack(pady=30)
+        self.logo_label = ctk.CTkLabel(self.sidebar, text="Travel Agency Pro", font=("Roboto Medium", 22))
+        self.logo_label.pack(pady=40)
 
-        self.btn_dashboard = ctk.CTkButton(self.sidebar, text="Dashboard", command=lambda: self.show_frame("DashboardFrame"))
-        self.btn_dashboard.pack(pady=10, padx=20)
+        self.create_nav_button("Dashboard", "DashboardFrame")
+        self.create_nav_button("Clients", "ClientFrame")
+        self.create_nav_button("Bookings", "BookingFrame")
 
-        self.btn_clients = ctk.CTkButton(self.sidebar, text="Clients", command=lambda: self.show_frame("ClientFrame"))
-        self.btn_clients.pack(pady=10, padx=20)
-
-        self.btn_bookings = ctk.CTkButton(self.sidebar, text="Bookings", command=lambda: self.show_frame("BookingFrame"))
-        self.btn_bookings.pack(pady=10, padx=20)
-
-        # Admin only registration button (simplified check, usually check role)
+        # Admin only registration
         if self.controller.current_user and self.controller.current_user['role'] == 'admin':
             self.btn_register = ctk.CTkButton(self.sidebar, text="Register Agent", fg_color="green", hover_color="darkgreen", command=self.open_register_window)
             self.btn_register.pack(pady=10, padx=20)
 
         self.btn_logout = ctk.CTkButton(self.sidebar, text="Logout", fg_color="red", hover_color="darkred", command=self.controller.logout)
-        self.btn_logout.pack(side="bottom", pady=30, padx=20)
-
-    def open_register_window(self):
-        RegisterAgentWindow(self.controller)
+        self.btn_logout.pack(side="bottom", pady=40, padx=20)
 
         # Content Area
         self.content_area = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
@@ -122,6 +126,10 @@ class MainLayout(ctk.CTkFrame):
 
         self.current_frame = None
         self.show_frame("DashboardFrame")
+
+    def create_nav_button(self, text, frame_name):
+        btn = ctk.CTkButton(self.sidebar, text=text, height=40, command=lambda: self.show_frame(frame_name))
+        btn.pack(pady=10, padx=20)
 
     def show_frame(self, frame_name):
         if self.current_frame:
@@ -136,33 +144,71 @@ class MainLayout(ctk.CTkFrame):
 
         self.current_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
+    def open_register_window(self):
+        RegisterAgentWindow(self.controller)
+
 
 class DashboardFrame(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
 
-        self.title = ctk.CTkLabel(self, text="Dashboard Overview", font=("Roboto Medium", 24))
+        self.title = ctk.CTkLabel(self, text="Dashboard Overview", font=("Roboto Medium", 28))
         self.title.pack(pady=20, anchor="w")
 
         stats = self.controller.db.get_stats()
 
-        self.stats_frame = ctk.CTkFrame(self)
-        self.stats_frame.pack(fill="x", pady=20)
+        # KPI Cards
+        self.cards_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.cards_frame.pack(fill="x", pady=20)
 
-        self.create_stat_card(self.stats_frame, "Total Clients", str(stats['clients']), 0)
-        self.create_stat_card(self.stats_frame, "Active Bookings", str(stats['bookings']), 1)
+        self.create_kpi_card(self.cards_frame, "Total Clients", str(stats['total_clients']), 0)
+        self.create_kpi_card(self.cards_frame, "Monthly Revenue", f"${stats['monthly_revenue']:,.2f}", 1)
+        self.create_kpi_card(self.cards_frame, "Pending Bookings", str(stats['pending_bookings']), 2)
 
-    def create_stat_card(self, parent, title, value, col):
-        card = ctk.CTkFrame(parent, height=150)
+        # Matplotlib Chart
+        self.chart_frame = ctk.CTkFrame(self)
+        self.chart_frame.pack(fill="both", expand=True, pady=20)
+
+        self.create_chart()
+
+    def create_kpi_card(self, parent, title, value, col):
+        card = ctk.CTkFrame(parent, height=140)
         card.grid(row=0, column=col, padx=10, pady=10, sticky="ew")
         parent.grid_columnconfigure(col, weight=1)
 
         lbl_title = ctk.CTkLabel(card, text=title, font=("Roboto", 16))
         lbl_title.pack(pady=(20, 5))
 
-        lbl_val = ctk.CTkLabel(card, text=value, font=("Roboto Medium", 32))
+        lbl_val = ctk.CTkLabel(card, text=value, font=("Roboto Medium", 32), text_color="#3B8ED0")
         lbl_val.pack(pady=10)
+
+    def create_chart(self):
+        fig = Figure(figsize=(5, 4), dpi=100)
+        ax = fig.add_subplot(111)
+
+        data = self.controller.db.get_monthly_revenue_stats()
+        months = data['labels']
+        revenue = data['values']
+
+        ax.bar(months, revenue, color='#3B8ED0')
+        ax.set_title("Revenue Trend (Last 6 Months)")
+        ax.set_ylabel("Revenue ($)")
+
+        # Styling for Dark Mode
+        fig.patch.set_facecolor('#2B2B2B')
+        ax.set_facecolor('#2B2B2B')
+        ax.spines['bottom'].set_color('white')
+        ax.spines['left'].set_color('white')
+        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='y', colors='white')
+        ax.yaxis.label.set_color('white')
+        ax.xaxis.label.set_color('white')
+        ax.title.set_color('white')
+
+        canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
 
 
 class ClientFrame(ctk.CTkFrame):
@@ -170,193 +216,145 @@ class ClientFrame(ctk.CTkFrame):
         super().__init__(parent)
         self.controller = controller
 
-        # Header
-        self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.header_frame.pack(fill="x", pady=10)
+        # Split View
+        self.left_pane = ctk.CTkFrame(self, width=300)
+        self.left_pane.pack(side="left", fill="y", padx=(0, 10))
 
-        self.title = ctk.CTkLabel(self.header_frame, text="Client Management", font=("Roboto Medium", 24))
-        self.title.pack(side="left")
+        self.right_pane = ctk.CTkFrame(self)
+        self.right_pane.pack(side="right", fill="both", expand=True)
 
-        self.add_btn = ctk.CTkButton(self.header_frame, text="+ Add Client", command=self.open_add_client_window)
-        self.add_btn.pack(side="right")
+        # Left Pane: List & Search
+        ctk.CTkLabel(self.left_pane, text="Clients", font=("Roboto Medium", 20)).pack(pady=10)
 
-        # Search
-        self.search_entry = ctk.CTkEntry(self, placeholder_text="Search client...")
-        self.search_entry.pack(fill="x", pady=10)
-        self.search_entry.bind("<Return>", self.search_client)
+        self.search_entry = ctk.CTkEntry(self.left_pane, placeholder_text="Search...")
+        self.search_entry.pack(fill="x", padx=10, pady=5)
+        self.search_entry.bind("<KeyRelease>", self.search_client)
 
-        # List Area (Using ScrollableFrame as basic list, since CTk doesn't have native Treeview)
-        # Ideally we'd use CTkTable or standard Treeview styled. Let's use standard Treeview with style.
-        import tkinter.ttk as ttk
-        import tkinter as tk
+        self.client_list_frame = ctk.CTkScrollableFrame(self.left_pane)
+        self.client_list_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("Treeview", background="#2b2b2b", fieldbackground="#2b2b2b", foreground="white", rowheight=25)
-        style.configure("Treeview.Heading", background="#333333", foreground="white", relief="flat")
-        style.map("Treeview", background=[("selected", "#1f538d")])
+        self.add_btn = ctk.CTkButton(self.left_pane, text="+ New Client", command=self.open_add_client_window)
+        self.add_btn.pack(pady=10, padx=10)
 
-        self.tree = ttk.Treeview(self, columns=("ID", "Name", "Passport", "Phone", "Email"), show="headings", height=15)
-        self.tree.heading("ID", text="ID")
-        self.tree.heading("Name", text="Full Name")
-        self.tree.heading("Passport", text="Passport")
-        self.tree.heading("Phone", text="Phone")
-        self.tree.heading("Email", text="Email")
+        self.delete_btn = ctk.CTkButton(self.left_pane, text="Delete Selected", fg_color="red", hover_color="darkred", command=self.delete_client)
+        self.delete_btn.pack(pady=10, padx=10)
 
-        self.tree.column("ID", width=30)
-        self.tree.pack(fill="both", expand=True, pady=10)
+        # Right Pane: Details (Tabs)
+        self.tabview = ctk.CTkTabview(self.right_pane)
+        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
+        self.tabview.add("Client Info")
+        self.tabview.add("History")
 
-        self.tree.bind("<Double-1>", self.on_client_double_click)
+        self.selected_client_id = None
+        self.info_entries = {}
+        self.create_info_tab()
 
-        # Buttons
-        self.action_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.action_frame.pack(fill="x", pady=10)
-        self.refresh_btn = ctk.CTkButton(self.action_frame, text="Refresh", command=self.load_clients)
-        self.refresh_btn.pack(side="left")
+        self.load_client_list()
 
-        self.delete_btn = ctk.CTkButton(self.action_frame, text="Delete Selected", fg_color="red", command=self.delete_client)
-        self.delete_btn.pack(side="right")
+    def create_info_tab(self):
+        tab = self.tabview.tab("Client Info")
+        fields = ["First Name", "Last Name", "Passport No", "Phone", "Email", "Nationality", "DOB"]
 
-        self.load_clients()
+        for i, field in enumerate(fields):
+            ctk.CTkLabel(tab, text=field).grid(row=i, column=0, padx=10, pady=10, sticky="e")
+            entry = ctk.CTkEntry(tab, width=300)
+            entry.grid(row=i, column=1, padx=10, pady=10, sticky="w")
+            self.info_entries[field] = entry
 
-    def load_clients(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        self.save_btn = ctk.CTkButton(tab, text="Update Details", command=self.update_client_details)
+        self.save_btn.grid(row=len(fields), column=1, pady=20, sticky="w")
+        self.save_btn.configure(state="disabled")
 
-        clients = self.controller.db.get_all_clients()
-        for client in clients:
-            self.tree.insert("", "end", values=(client['id'], client['full_name'], client['passport_number'], client['phone'], client['email']))
+    def load_client_list(self, query=""):
+        for widget in self.client_list_frame.winfo_children():
+            widget.destroy()
 
-    def search_client(self, event=None):
-        query = self.search_entry.get()
-        if not query:
-            self.load_clients()
-            return
-
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
-        clients = self.controller.db.search_clients(query)
-        for client in clients:
-            self.tree.insert("", "end", values=(client['id'], client['full_name'], client['passport_number'], client['phone'], client['email']))
-
-    def open_add_client_window(self):
-        AddClientWindow(self.controller, self.load_clients)
-
-    def on_client_double_click(self, event):
-        item = self.tree.selection()[0]
-        client_values = self.tree.item(item, "values")
-        if client_values:
-            EditClientWindow(self.controller, self.load_clients, client_values)
-
-    def delete_client(self):
-        selected_item = self.tree.selection()
-        if not selected_item:
-            return
-
-        client_id = self.tree.item(selected_item[0], "values")[0]
-        if messagebox.askyesno("Confirm", "Are you sure you want to delete this client?"):
-            self.controller.db.delete_client(client_id)
-            self.load_clients()
-
-
-class AddClientWindow(ctk.CTkToplevel):
-    def __init__(self, controller, callback):
-        super().__init__()
-        self.controller = controller
-        self.callback = callback
-        self.title("Add New Client")
-        self.geometry("400x500")
-
-        self.attributes("-topmost", True)
-
-        self.entries = {}
-        fields = ["Full Name", "Passport Number", "Phone", "Email", "Address", "Notes"]
-
-        for field in fields:
-            lbl = ctk.CTkLabel(self, text=field)
-            lbl.pack(pady=(10, 0))
-            entry = ctk.CTkEntry(self, width=300)
-            entry.pack(pady=(5, 5))
-            self.entries[field] = entry
-
-        btn = ctk.CTkButton(self, text="Save Client", command=self.save_client)
-        btn.pack(pady=20)
-
-    def save_client(self):
-        data = {k: v.get() for k, v in self.entries.items()}
-        if not data["Full Name"] or not data["Passport Number"]:
-            messagebox.showerror("Error", "Name and Passport are required.")
-            return
-
-        success = self.controller.db.add_client(
-            data["Full Name"], data["Passport Number"], data["Phone"],
-            data["Email"], data["Address"], data["Notes"]
-        )
-
-        if success:
-            messagebox.showinfo("Success", "Client added successfully.")
-            self.callback()
-            self.destroy()
+        if query:
+            clients = self.controller.db.search_clients(query)
         else:
-            messagebox.showerror("Error", "Failed to add client. Passport may be duplicate.")
+            clients = self.controller.db.get_all_clients()
 
+        for client in clients:
+            btn = ctk.CTkButton(self.client_list_frame,
+                                text=f"{client['last_name']}, {client['first_name']} ({client['passport_no']})",
+                                fg_color="transparent", border_width=1,
+                                command=lambda c=client: self.select_client(c))
+            btn.pack(fill="x", pady=2)
 
-class EditClientWindow(ctk.CTkToplevel):
-    def __init__(self, controller, callback, client_data):
-        super().__init__()
-        self.controller = controller
-        self.callback = callback
-        self.client_id = client_data[0]
-        self.title("Edit Client")
-        self.geometry("400x500")
+    def search_client(self, event):
+        self.load_client_list(self.search_entry.get())
 
-        self.attributes("-topmost", True)
+    def select_client(self, client):
+        self.selected_client_id = client['id']
+        self.save_btn.configure(state="normal")
 
-        self.entries = {}
-        fields = ["Full Name", "Passport Number", "Phone", "Email", "Address", "Notes"]
-
-        # Fetch full client details from DB to ensure no data loss
-        client = self.controller.db.get_client_by_id(self.client_id)
-
-        defaults = {
-            "Full Name": client['full_name'],
-            "Passport Number": client['passport_number'],
+        # Fill Info Tab
+        mapping = {
+            "First Name": client['first_name'],
+            "Last Name": client['last_name'],
+            "Passport No": client['passport_no'],
             "Phone": client['phone'],
             "Email": client['email'],
-            "Address": client['address'],
-            "Notes": client['notes']
+            "Nationality": client['nationality'],
+            "DOB": client['dob']
         }
+        for field, value in mapping.items():
+            self.info_entries[field].delete(0, "end")
+            self.info_entries[field].insert(0, value if value else "")
 
-        for field in fields:
-            lbl = ctk.CTkLabel(self, text=field)
-            lbl.pack(pady=(10, 0))
-            entry = ctk.CTkEntry(self, width=300)
-            entry.insert(0, defaults[field])
-            entry.pack(pady=(5, 5))
-            self.entries[field] = entry
+        # Fill History Tab
+        self.load_client_history(client['id'])
 
-        btn = ctk.CTkButton(self, text="Update Client", command=self.update_client)
-        btn.pack(pady=20)
+    def load_client_history(self, client_id):
+        tab = self.tabview.tab("History")
+        for widget in tab.winfo_children():
+            widget.destroy()
 
-    def update_client(self):
-        data = {k: v.get() for k, v in self.entries.items()}
-        if not data["Full Name"] or not data["Passport Number"]:
-            messagebox.showerror("Error", "Name and Passport are required.")
+        bookings = self.controller.db.get_bookings_by_client(client_id)
+
+        columns = ("ID", "Destination", "Service", "Date", "Cost", "Status")
+        tree = ttk.Treeview(tab, columns=columns, show="headings", height=15)
+
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=100)
+
+        tree.pack(fill="both", expand=True)
+
+        for b in bookings:
+            tree.insert("", "end", values=(b['id'], b['destination'], b['service_type'], b['start_date'], f"${b['selling_price']}", b['status']))
+
+    def update_client_details(self):
+        if not self.selected_client_id:
             return
 
+        data = {k: v.get() for k, v in self.info_entries.items()}
         success = self.controller.db.update_client(
-            self.client_id,
-            data["Full Name"], data["Passport Number"], data["Phone"],
-            data["Email"], data["Address"], data["Notes"]
+            self.selected_client_id, data["Passport No"], data["First Name"], data["Last Name"],
+            data["Phone"], data["Email"], data["Nationality"], data["DOB"]
         )
-
         if success:
-            messagebox.showinfo("Success", "Client updated successfully.")
-            self.callback()
-            self.destroy()
+            messagebox.showinfo("Success", "Client details updated.")
+            self.load_client_list()
         else:
-            messagebox.showerror("Error", "Failed to update client.")
+            messagebox.showerror("Error", "Update failed.")
+
+    def open_add_client_window(self):
+        AddClientWindow(self.controller, self.load_client_list)
+
+    def delete_client(self):
+        if not self.selected_client_id:
+            messagebox.showwarning("Warning", "Select a client first")
+            return
+
+        if messagebox.askyesno("Confirm", "Are you sure? This will delete all associated bookings."):
+            self.controller.db.delete_client(self.selected_client_id)
+            self.selected_client_id = None
+            self.save_btn.configure(state="disabled")
+            self.load_client_list()
+            # Clear entries
+            for entry in self.info_entries.values():
+                entry.delete(0, "end")
 
 
 class BookingFrame(ctk.CTkFrame):
@@ -364,96 +362,169 @@ class BookingFrame(ctk.CTkFrame):
         super().__init__(parent)
         self.controller = controller
 
-        self.title = ctk.CTkLabel(self, text="Booking Management", font=("Roboto Medium", 24))
-        self.title.pack(pady=10, anchor="w")
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=3)
 
-        self.add_btn = ctk.CTkButton(self, text="+ New Booking", command=self.open_add_booking)
-        self.add_btn.pack(pady=10, anchor="w")
+        # Left: Booking Form
+        self.form_frame = ctk.CTkFrame(self)
+        self.form_frame.pack(side="left", fill="y", padx=10, pady=10)
 
-        # Treeview for bookings
-        import tkinter.ttk as ttk
+        ctk.CTkLabel(self.form_frame, text="New Booking", font=("Roboto Medium", 20)).pack(pady=10)
 
-        self.tree = ttk.Treeview(self, columns=("ID", "Client", "Destination", "Date", "Status"), show="headings", height=15)
-        self.tree.heading("ID", text="ID")
-        self.tree.heading("Client", text="Client")
-        self.tree.heading("Destination", text="Destination")
-        self.tree.heading("Date", text="Date")
-        self.tree.heading("Status", text="Status")
+        # Client Selector
+        ctk.CTkLabel(self.form_frame, text="Client").pack(pady=5)
+        self.client_var = StringVar()
+        self.client_combo = ctk.CTkComboBox(self.form_frame, variable=self.client_var, values=self.get_client_options())
+        self.client_combo.pack(pady=5)
 
-        self.tree.column("ID", width=30)
-        self.tree.pack(fill="both", expand=True, pady=10)
+        # Service Type
+        ctk.CTkLabel(self.form_frame, text="Service Type").pack(pady=5)
+        self.service_var = StringVar(value="Flight")
+        self.radio_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        self.radio_frame.pack()
+        ctk.CTkRadioButton(self.radio_frame, text="Flight", variable=self.service_var, value="Flight").pack(side="left", padx=5)
+        ctk.CTkRadioButton(self.radio_frame, text="Hotel", variable=self.service_var, value="Hotel").pack(side="left", padx=5)
+
+        # Fields
+        self.entries = {}
+        fields = ["Destination", "Provider", "Start Date", "End Date"]
+        for field in fields:
+            ctk.CTkLabel(self.form_frame, text=field).pack(pady=2)
+            entry = ctk.CTkEntry(self.form_frame)
+            entry.pack(pady=2)
+            self.entries[field] = entry
+
+        # Financials
+        ctk.CTkLabel(self.form_frame, text="Net Price ($)").pack(pady=2)
+        self.net_price = ctk.CTkEntry(self.form_frame)
+        self.net_price.pack(pady=2)
+        self.net_price.bind("<KeyRelease>", self.calc_selling_price)
+
+        ctk.CTkLabel(self.form_frame, text="Margin ($)").pack(pady=2)
+        self.margin = ctk.CTkEntry(self.form_frame)
+        self.margin.pack(pady=2)
+        self.margin.bind("<KeyRelease>", self.calc_selling_price)
+
+        ctk.CTkLabel(self.form_frame, text="Selling Price ($)").pack(pady=2)
+        self.selling_price = ctk.CTkEntry(self.form_frame) # Read-only ideally
+        self.selling_price.pack(pady=2)
+
+        self.create_btn = ctk.CTkButton(self.form_frame, text="Create Booking", command=self.create_booking)
+        self.create_btn.pack(pady=20)
+
+        # Right: Booking List
+        self.list_frame = ctk.CTkFrame(self)
+        self.list_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+
+        self.tree = ttk.Treeview(self.list_frame, columns=("ID", "Client", "Service", "Dest", "Price", "Status"), show="headings")
+        for col in ("ID", "Client", "Service", "Dest", "Price", "Status"):
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=80)
+        self.tree.pack(fill="both", expand=True)
+
+        # Actions
+        self.pdf_btn = ctk.CTkButton(self.list_frame, text="Download Invoice PDF", command=self.generate_pdf)
+        self.pdf_btn.pack(pady=10)
 
         self.load_bookings()
+
+    def get_client_options(self):
+        clients = self.controller.db.get_all_clients()
+        return [f"{c['id']} - {c['last_name']}" for c in clients]
+
+    def calc_selling_price(self, event):
+        try:
+            net = float(self.net_price.get())
+            margin = float(self.margin.get())
+            self.selling_price.delete(0, "end")
+            self.selling_price.insert(0, str(net + margin))
+        except ValueError:
+            pass
+
+    def create_booking(self):
+        try:
+            client_str = self.client_var.get()
+            if not client_str: raise ValueError("Select a client")
+            client_id = client_str.split(" - ")[0]
+
+            data = {k: v.get() for k, v in self.entries.items()}
+            net = float(self.net_price.get())
+            selling = float(self.selling_price.get())
+
+            success = self.controller.db.add_booking(
+                client_id, self.service_var.get(), data["Destination"], data["Provider"],
+                data["Start Date"], data["End Date"], net, selling
+            )
+
+            if success:
+                messagebox.showinfo("Success", "Booking created.")
+                self.load_bookings()
+            else:
+                messagebox.showerror("Error", "Failed to create booking.")
+        except ValueError as e:
+            messagebox.showerror("Error", f"Invalid Input: {e}")
 
     def load_bookings(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
-
         bookings = self.controller.db.get_all_bookings()
         for b in bookings:
-            self.tree.insert("", "end", values=(b['id'], b['full_name'], b['destination'], b['travel_date'], b['status']))
+            client_name = f"{b['last_name']}, {b['first_name']}"
+            self.tree.insert("", "end", values=(b['id'], client_name, b['service_type'], b['destination'], f"${b['selling_price']}", b['status']))
 
-    def open_add_booking(self):
-        AddBookingWindow(self.controller, self.load_bookings)
+    def generate_pdf(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Warning", "Select a booking first.")
+            return
+
+        booking_id = self.tree.item(selected[0], "values")[0]
+        booking_data = self.controller.db.get_booking_by_id(booking_id)
+
+        if booking_data:
+            path = PDFGenerator.generate_invoice(dict(booking_data))
+            messagebox.showinfo("PDF Generated", f"Invoice saved at:\n{path}")
+        else:
+            messagebox.showerror("Error", "Could not fetch booking data.")
 
 
-class AddBookingWindow(ctk.CTkToplevel):
+class AddClientWindow(ctk.CTkToplevel):
     def __init__(self, controller, callback):
         super().__init__()
         self.controller = controller
         self.callback = callback
-        self.title("New Booking")
-        self.geometry("450x600")
+        self.title("New Client")
+        self.geometry("400x500")
         self.attributes("-topmost", True)
 
-        # Client Selection
-        ctk.CTkLabel(self, text="Select Client (ID)").pack(pady=(10,0))
-        self.client_var = StringVar()
-        self.client_combo = ctk.CTkComboBox(self, variable=self.client_var, values=self.get_client_options(), width=300)
-        self.client_combo.pack(pady=5)
-
         self.entries = {}
-        fields = ["Destination", "Hotel", "Flight Details", "Travel Date (YYYY-MM-DD)", "Return Date (YYYY-MM-DD)", "Price", "Status"]
+        fields = ["Passport No", "First Name", "Last Name", "Phone", "Email", "Nationality", "DOB"]
 
         for field in fields:
-            ctk.CTkLabel(self, text=field).pack(pady=(5,0))
-            entry = ctk.CTkEntry(self, width=300)
-            entry.pack(pady=5)
+            ctk.CTkLabel(self, text=field).pack(pady=2)
+            entry = ctk.CTkEntry(self, width=250)
+            entry.pack(pady=2)
             self.entries[field] = entry
 
-        btn = ctk.CTkButton(self, text="Create Booking", command=self.save_booking)
-        btn.pack(pady=20)
+        ctk.CTkButton(self, text="Save Client", command=self.save).pack(pady=20)
 
-    def get_client_options(self):
-        clients = self.controller.db.get_all_clients()
-        return [f"{c['id']} - {c['full_name']}" for c in clients]
-
-    def save_booking(self):
-        client_str = self.client_var.get()
-        if not client_str:
-            messagebox.showerror("Error", "Please select a client")
-            return
-
-        client_id = client_str.split(" - ")[0]
+    def save(self):
         data = {k: v.get() for k, v in self.entries.items()}
-
-        # Basic validation
-        if not data["Destination"] or not data["Price"]:
-            messagebox.showerror("Error", "Destination and Price are required.")
+        if not data["Passport No"] or not data["Last Name"]:
+            messagebox.showerror("Error", "Passport and Name are required.")
             return
 
-        success = self.controller.db.add_booking(
-            client_id, data["Destination"], data["Hotel"], data["Flight Details"],
-            data["Travel Date (YYYY-MM-DD)"], data["Return Date (YYYY-MM-DD)"],
-            data["Price"], data["Status"]
+        success = self.controller.db.add_client(
+            data["Passport No"], data["First Name"], data["Last Name"],
+            data["Phone"], data["Email"], data["Nationality"], data["DOB"]
         )
 
         if success:
-            messagebox.showinfo("Success", "Booking created.")
+            messagebox.showinfo("Success", "Client Added")
             self.callback()
             self.destroy()
         else:
-            messagebox.showerror("Error", "Failed to create booking.")
+            messagebox.showerror("Error", "Passport number already exists.")
 
 class RegisterAgentWindow(ctk.CTkToplevel):
     def __init__(self, controller):
@@ -488,7 +559,6 @@ class RegisterAgentWindow(ctk.CTkToplevel):
             self.destroy()
         else:
             messagebox.showerror("Error", "Username already exists")
-
 
 if __name__ == "__main__":
     app = TravelApp()

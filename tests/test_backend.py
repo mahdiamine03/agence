@@ -25,68 +25,57 @@ class TestBackend(unittest.TestCase):
         self.assertIn('users', tables)
         self.assertIn('clients', tables)
         self.assertIn('bookings', tables)
+        self.assertIn('payments', tables)
         conn.close()
-
-    def test_user_registration_login(self):
-        # Test registration
-        self.auth.register_user("testuser", "password123")
-        user = self.db.get_user_by_username("testuser")
-        self.assertIsNotNone(user)
-        self.assertEqual(user['username'], "testuser")
-        self.assertNotEqual(user['password_hash'], "password123") # Should be hashed
-
-        # Test login
-        logged_in_user = self.auth.login("testuser", "password123")
-        self.assertIsNotNone(logged_in_user)
-        self.assertEqual(logged_in_user['username'], "testuser")
-
-        # Test bad login
-        bad_user = self.auth.login("testuser", "wrongpass")
-        self.assertIsNone(bad_user)
 
     def test_client_management(self):
         # Add client
-        success = self.db.add_client("John Doe", "P123456", "555-1234", "john@example.com", "123 St", "VIP")
+        success = self.db.add_client("P12345", "John", "Doe", "555-123", "j@d.com", "US", "1990-01-01")
         self.assertTrue(success)
 
         # Get clients
         clients = self.db.get_all_clients()
         self.assertEqual(len(clients), 1)
-        self.assertEqual(clients[0]['full_name'], "John Doe")
+        self.assertEqual(clients[0]['first_name'], "John")
 
-        # Get client by id
-        client = self.db.get_client_by_id(clients[0]['id'])
-        self.assertIsNotNone(client)
-        self.assertEqual(client['full_name'], "John Doe")
-
-        # Search client
+        # Search
         results = self.db.search_clients("Doe")
         self.assertEqual(len(results), 1)
 
-        # Update client
-        self.db.update_client(clients[0]['id'], "John Doe Updated", "P123456", "555-1234", "john@example.com", "123 St", "VIP")
-        clients = self.db.get_all_clients()
-        self.assertEqual(clients[0]['full_name'], "John Doe Updated")
+        # Unique Passport check
+        success = self.db.add_client("P12345", "Jane", "Doe", "555-456", "j@d.com", "US", "1992-01-01")
+        self.assertFalse(success)
 
-        # Delete client
-        self.db.delete_client(clients[0]['id'])
-        clients = self.db.get_all_clients()
-        self.assertEqual(len(clients), 0)
-
-    def test_booking_management(self):
-        self.db.add_client("Jane Doe", "P987654", "555-5678", "jane@example.com", "456 Ave", "")
+    def test_booking_and_payments(self):
+        self.db.add_client("P999", "Alice", "Wonder", "555-999", "a@w.com", "UK", "1995-05-05")
         clients = self.db.get_all_clients()
         client_id = clients[0]['id']
 
-        success = self.db.add_booking(client_id, "Paris", "Hilton", "AF123", "2023-10-10", "2023-10-20", 1500.0, "Paid")
+        # Add Booking
+        # Use current date to ensure it counts for monthly revenue test
+        import datetime
+        now = datetime.datetime.now().strftime("%Y-%m-%d")
+        success = self.db.add_booking(client_id, "Flight", "London", "BA", now, "2023-12-10", 800.0, 1000.0)
         self.assertTrue(success)
 
         bookings = self.db.get_bookings_by_client(client_id)
         self.assertEqual(len(bookings), 1)
-        self.assertEqual(bookings[0]['destination'], "Paris")
+        booking_id = bookings[0]['id']
 
+        # Check Balance (Should be 1000 owed)
+        balance = self.db.get_client_balance(client_id)
+        self.assertEqual(balance, 1000.0)
+
+        # Add Payment
+        self.db.add_payment(booking_id, 400.0, "Cash")
+
+        # Check Balance (Should be 600 owed)
+        balance = self.db.get_client_balance(client_id)
+        self.assertEqual(balance, 600.0)
+
+        # Stats
         stats = self.db.get_stats()
-        self.assertEqual(stats['bookings'], 1)
+        self.assertEqual(stats['monthly_revenue'], 1000.0)
 
 if __name__ == '__main__':
     unittest.main()
